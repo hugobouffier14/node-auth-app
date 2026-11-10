@@ -1,0 +1,84 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test-build-push:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Récupérer le code du dépôt
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Lancer toute l'appli (db + backend + frontend) sur le runner
+      - name: Start the full stack
+        run: docker compose up -d --build
+
+      - name: Wait for the app to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:5173/api/health > /dev/null; then
+              echo "App is ready"
+              exit 0
+            fi
+            echo "Waiting for the app ($i/30)..."
+            sleep 2
+          done
+          echo "App did not start in time"
+          docker compose logs
+          exit 1
+
+      # 3. Lancer les tests Playwright contre la stack
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Stop the stack
+        if: ${{ always() }}
+        run: docker compose down -v
+
+      # 4. Si (et seulement si) les tests passent : build + push des images
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.multistage
+          push: true
+          tags: ${{ vars.DOCKERHUB_USERNAME }}/auth-app:frontend
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ vars.DOCKERHUB_USERNAME }}/auth-app:backend
