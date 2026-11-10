@@ -60,7 +60,7 @@ function renderWelcome() {
     <h1></h1>
     <p>You are logged in.</p>
     <button type="button">Log out</button>`;
-  app.querySelector("h1").textContent = `Welcome, ${currentUser}!`;
+  app.querySelector("h1").textContent = `Welcome, ${currentUser}!PSG VA FAIRE LE TRIPLE EN LDC`;
   app.querySelector("button").addEventListener("click", () => {
     currentUser = null;
     go("/login");
